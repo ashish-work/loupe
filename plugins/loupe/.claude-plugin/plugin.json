@@ -1,0 +1,10 @@
+{
+  "name": "loupe",
+  "description": "Interactive, human-in-the-loop PR review: the agent finds issues, you curate them in a browser (accept/edit/dismiss findings, add line comments, view UML + overview diagrams), and the curated review comes back as JSON to post to GitHub.",
+  "version": "1.0.0",
+  "author": { "name": "Ashish Gupta" },
+  "homepage": "https://github.com/ashish-work/loupe",
+  "repository": "https://github.com/ashish-work/loupe",
+  "license": "Apache-2.0",
+  "keywords": ["code-review", "pull-request", "diff", "mermaid", "review", "uml"]
+}

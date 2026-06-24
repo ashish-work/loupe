@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>loupe — interactive PR review for Claude Code</title>
+<meta name="description" content="The agent finds the issues; you curate them in a browser. Interactive, human-in-the-loop PR review for Claude Code, with UML structure maps and Mermaid overview diagrams above the diff.">
+<meta property="og:title" content="loupe — interactive PR review for Claude Code">
+<meta property="og:description" content="Claude finds the issues; you curate them in a browser — accept / edit / dismiss, with UML + Mermaid overview diagrams above the diff.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="screenshot.png">
+<style>
+  :root{
+    --bg:#fbfbfd; --surface:#fff; --text:#17171c; --muted:#5f6470; --border:#e6e6ec;
+    --accent:#4f46e5; --accent-weak:#eef0ff; --code:#0e1014; --code-text:#e9e9f0;
+    --ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#0e0f13;--surface:#16181e;--text:#e9e9f0;--muted:#9a9aa6;--border:#262932;--accent:#8b8bf0;--accent-weak:#1c1d2e;--code:#0a0b0e;--code-text:#e9e9f0;}
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:var(--ui);background:var(--bg);color:var(--text);line-height:1.6;-webkit-font-smoothing:antialiased}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:920px;margin:0 auto;padding:0 24px}
+  header{padding:72px 0 28px;text-align:center}
+  .badge{display:inline-block;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);background:var(--accent-weak);padding:5px 12px;border-radius:999px;margin-bottom:22px}
+  h1{font-size:clamp(40px,7vw,68px);line-height:1.02;letter-spacing:-.03em;font-weight:800}
+  .tag{font-size:clamp(17px,2.4vw,21px);color:var(--muted);max-width:60ch;margin:18px auto 0}
+  .cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:28px}
+  .btn{display:inline-flex;align-items:center;gap:8px;font-weight:600;font-size:15px;padding:11px 20px;border-radius:10px;border:1px solid var(--border)}
+  .btn.primary{background:var(--accent);color:#fff;border-color:transparent}
+  .btn.primary:hover{text-decoration:none;filter:brightness(1.06)}
+  .btn.ghost{background:var(--surface);color:var(--text)}
+  .shot{margin:40px auto 0;border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:0 30px 70px -34px rgba(20,20,40,.4)}
+  .shot img,.shot video{display:block;width:100%;height:auto}
+  section{padding:48px 0;border-top:1px solid var(--border)}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:700;margin-bottom:20px}
+  .grid{display:grid;grid-template-columns:1fr;gap:18px}
+  @media(min-width:640px){.grid{grid-template-columns:1fr 1fr}}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
+  .card h3{font-size:16px;margin-bottom:6px}
+  .card p{color:var(--muted);font-size:14.5px}
+  pre{background:var(--code);color:var(--code-text);border-radius:12px;padding:16px 18px;overflow:auto;font-family:var(--mono);font-size:13.5px;line-height:1.7}
+  pre .c{color:#8a8f99}
+  .ex{margin:14px 0 0;padding-left:18px;border-left:3px solid var(--accent-weak)}
+  .ex b{font-weight:600}
+  .ex p{color:var(--muted);font-size:14.5px;margin-top:2px}
+  footer{padding:40px 0 64px;color:var(--muted);font-size:13.5px;text-align:center;border-top:1px solid var(--border)}
+  .step{counter-reset:step;list-style:none}
+  .step li{position:relative;padding:6px 0 6px 34px;color:var(--muted)}
+  .step li::before{counter-increment:step;content:counter(step);position:absolute;left:0;top:6px;width:22px;height:22px;border-radius:50%;background:var(--accent-weak);color:var(--accent);font-size:12px;font-weight:700;display:grid;place-items:center}
+  .step li b{color:var(--text);font-weight:600}
+</style>
+</head>
+<body>
+
+<header class="wrap">
+  <span class="badge">Claude Code plugin</span>
+  <h1>loupe</h1>
+  <p class="tag">Interactive, human-in-the-loop PR review. Claude finds the issues; <b>you</b> curate them in a browser — then the curated review goes back to post.</p>
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/ashish-work/loupe">View on GitHub</a>
+    <a class="btn ghost" href="https://github.com/ashish-work/loupe/releases/tag/v1.0.0">Release v1.0.0</a>
+  </div>
+  <div class="shot" id="demo">
+    <video src="demo.mp4" poster="screenshot.png" autoplay muted loop playsinline controls
+           aria-label="loupe demo: reviewing a PR with overview diagrams, UML structure, and curated findings"></video>
+  </div>
+</header>
+
+<section class="wrap">
+  <h2>Install</h2>
+  <pre><span class="c"># in Claude Code</span>
+/plugin marketplace add ashish-work/loupe
+/plugin install loupe@loupe</pre>
+  <p style="color:var(--muted);font-size:14px;margin-top:12px">Then just ask Claude to review a PR, or run <code>/loupe</code>. Requires Python 3.8+ (stdlib only); <code>gh</code> CLI optional for GitHub PRs.</p>
+</section>
+
+<section class="wrap">
+  <h2>What you get</h2>
+  <div class="grid">
+    <div class="card"><h3>Curated findings</h3><p>Claude proposes severity-tagged, line-anchored comments; you accept, edit, or dismiss each — and add your own. A few strong findings beat a wall of nitpicks.</p></div>
+    <div class="card"><h3>Overview diagrams</h3><p>Mermaid architecture overlay, capability map, or user-journey flow rendered above the diff, so you grasp the <em>idea</em> of the change before the line diff. Claude asks which to include.</p></div>
+    <div class="card"><h3>UML structure map</h3><p>For type-shape changes — added / modified / removed classes, interfaces, relationships — color-coded and clickable straight into the diff.</p></div>
+    <div class="card"><h3>One clean loop</h3><p>Submit, and the curated review (kept comments + your own + verdict) returns to Claude as JSON to post a GitHub review or summarize.</p></div>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>Examples</h2>
+  <div class="ex"><b>“review PR #482”</b><p>Claude fetches the diff, writes findings, opens the loupe UI. You accept/edit/dismiss, pick Approve / Comment / Request changes, and it posts a GitHub review.</p></div>
+  <div class="ex"><b>“review this branch before I merge”</b><p>No PR yet — loupe builds the diff from <code>git diff main...HEAD</code> and runs the same review loop locally.</p></div>
+  <div class="ex"><b>“/loupe”</b> on a big feature PR<p>Claude offers overview diagrams (architecture / capability / journey), renders them as Mermaid above the diff, and you review with the meta-picture in hand.</p></div>
+  <div class="ex"><b>“look at this diff and tell me what's risky”</b><p>loupe surfaces only what you keep — curate in the browser instead of scrolling a chat dump.</p></div>
+</section>
+
+<section class="wrap">
+  <h2>How it works</h2>
+  <ol class="step">
+    <li>Claude reads the PR/diff and writes <b>findings</b> (+ optional UML structure and Mermaid diagrams).</li>
+    <li>loupe — a zero-dependency Python server — renders a self-contained UI and opens your browser.</li>
+    <li>You <b>curate</b>: accept / edit / dismiss, add line comments, pick a verdict, hit <b>Send review</b>.</li>
+    <li>The curated review returns to Claude as JSON to <b>post to GitHub</b> or summarize.</li>
+  </ol>
+</section>
+
+<footer class="wrap">
+  loupe · Apache-2.0 · by Ashish Gupta · <a href="https://github.com/ashish-work/loupe">github.com/ashish-work/loupe</a>
+</footer>
+
+</body>
+</html>

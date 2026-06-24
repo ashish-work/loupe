@@ -1,0 +1,17 @@
+{
+  "name": "loupe",
+  "owner": { "name": "Ashish Gupta" },
+  "metadata": {
+    "description": "loupe — interactive, human-in-the-loop PR review skill",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "loupe",
+      "source": "./plugins/loupe",
+      "description": "Interactive PR review: agent finds issues, you curate in a browser, with UML + Mermaid overview diagrams.",
+      "version": "1.0.0",
+      "license": "Apache-2.0"
+    }
+  ]
+}

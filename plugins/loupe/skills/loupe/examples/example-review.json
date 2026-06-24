@@ -1,0 +1,142 @@
+{
+  "pr": {
+    "number": 482,
+    "title": "Extract retry/backoff into a RetryPolicy used by the gateway client",
+    "repo": "athena/inference-gateway",
+    "author": "rmenon",
+    "branch": "feat/retry-policy",
+    "base": "main",
+    "url": "https://github.com/athena/inference-gateway/pull/482"
+  },
+  "summary": "Pulls retry behavior out of Client into a dedicated RetryPolicy (exponential backoff + jitter, plus a ShouldRetry predicate). Client now composes a *RetryPolicy and its Do method runs the attempt loop. Cleaner separation; two correctness concerns (body replay on retried requests, blanket 5xx retry for non-idempotent calls) and a zero-value panic to fix.",
+  "diff": "diff --git a/gateway/client.go b/gateway/client.go\nindex 1a2b3c4..5d6e7f8 100644\n--- a/gateway/client.go\n+++ b/gateway/client.go\n@@ -8,8 +8,11 @@ import (\n type Client struct {\n\ttransport http.RoundTripper\n\tbaseURL   string\n+\tretry     *RetryPolicy\n }\n \n-func (c *Client) Do(req *http.Request) (*http.Response, error) {\n-\treturn c.transport.RoundTrip(req)\n+func (c *Client) Do(req *http.Request) (*http.Response, error) {\n+\tvar lastErr error\n+\tfor attempt := 0; attempt < c.retry.maxAttempts; attempt++ {\n+\t\tif err := req.Context().Err(); err != nil {\n+\t\t\treturn nil, err\n+\t\t}\n+\t\tresp, err := c.transport.RoundTrip(req)\n+\t\tif err != nil {\n+\t\t\tlastErr = err\n+\t\t\ttime.Sleep(c.retry.Backoff(attempt))\n+\t\t\tcontinue\n+\t\t}\n+\t\tif c.retry.ShouldRetry(resp, nil) {\n+\t\t\tlastErr = fmt.Errorf(\"upstream %d\", resp.StatusCode)\n+\t\t\ttime.Sleep(c.retry.Backoff(attempt))\n+\t\t\tcontinue\n+\t\t}\n+\t\treturn resp, nil\n+\t}\n+\treturn nil, lastErr\n }\ndiff --git a/gateway/retry.go b/gateway/retry.go\nnew file mode 100644\nindex 0000000..abc1234\n--- /dev/null\n+++ b/gateway/retry.go\n@@ -0,0 +1,26 @@\n+package gateway\n+\n+import (\n+\t\"math/rand\"\n+\t\"net/http\"\n+\t\"time\"\n+)\n+\n+// RetryPolicy decides whether and how long to wait between attempts.\n+type RetryPolicy struct {\n+\tmaxAttempts int\n+\tbaseDelay   time.Duration\n+}\n+\n+func (p *RetryPolicy) Backoff(attempt int) time.Duration {\n+\td := p.baseDelay * time.Duration(1<<attempt)\n+\tjitter := time.Duration(rand.Int63n(int64(d) / 2))\n+\treturn d + jitter\n+}\n+\n+func (p *RetryPolicy) ShouldRetry(resp *http.Response, err error) bool {\n+\tif err != nil {\n+\t\treturn true\n+\t}\n+\treturn resp.StatusCode >= 500\n+}\ndiff --git a/gateway/client_test.go b/gateway/client_test.go\nnew file mode 100644\nindex 0000000..def5678\n--- /dev/null\n+++ b/gateway/client_test.go\n@@ -0,0 +1,12 @@\n+package gateway\n+\n+import (\n+\t\"testing\"\n+\t\"time\"\n+)\n+\n+func TestBackoffGrows(t *testing.T) {\n+\tp := &RetryPolicy{baseDelay: 10 * time.Millisecond}\n+\tif p.Backoff(0) >= p.Backoff(3) {\n+\t\tt.Fatal(\"expected backoff to grow with attempts\")\n+\t}\n+}\n",
+  "structure": {
+    "diagram_title": "gateway client gains a retry layer",
+    "classes": [
+      {
+        "name": "Client",
+        "file": "gateway/client.go",
+        "line": 8,
+        "change": "modified",
+        "stereotype": "struct",
+        "attributes": [
+          {
+            "name": "transport http.RoundTripper"
+          },
+          {
+            "name": "baseURL string"
+          },
+          {
+            "name": "retry *RetryPolicy",
+            "change": "added"
+          }
+        ],
+        "methods": [
+          {
+            "name": "Do(req) (*Response, error)",
+            "change": "modified"
+          }
+        ]
+      },
+      {
+        "name": "RetryPolicy",
+        "file": "gateway/retry.go",
+        "line": 10,
+        "change": "added",
+        "stereotype": "struct",
+        "attributes": [
+          {
+            "name": "maxAttempts int",
+            "change": "added"
+          },
+          {
+            "name": "baseDelay time.Duration",
+            "change": "added"
+          }
+        ],
+        "methods": [
+          {
+            "name": "Backoff(attempt) Duration",
+            "change": "added"
+          },
+          {
+            "name": "ShouldRetry(resp, err) bool",
+            "change": "added"
+          }
+        ]
+      }
+    ],
+    "relations": [
+      {
+        "from": "Client",
+        "to": "RetryPolicy",
+        "type": "composes"
+      }
+    ]
+  },
+  "findings": [
+    {
+      "id": "f1",
+      "file": "gateway/client.go",
+      "line": 20,
+      "side": "new",
+      "severity": "high",
+      "title": "Retried request re-sends an already-consumed body",
+      "body": "On a POST, the first RoundTrip drains req.Body; the next attempt sends the same request with an empty body. Rebuild it per attempt via req.GetBody, or clone the request.",
+      "suggestion": "if req.GetBody != nil {\n    b, err := req.GetBody()\n    if err != nil { return nil, err }\n    req.Body = b\n}"
+    },
+    {
+      "id": "f2",
+      "file": "gateway/retry.go",
+      "line": 25,
+      "side": "new",
+      "severity": "high",
+      "title": "Blanket 5xx retry is unsafe for non-idempotent requests",
+      "body": "ShouldRetry returns true for every 5xx regardless of method. A POST that already applied server-side but returned 502 from a proxy will be double-applied. Gate on method idempotency or an explicit allowlist, and honor Retry-After.",
+      "suggestion": ""
+    },
+    {
+      "id": "f3",
+      "file": "gateway/retry.go",
+      "line": 17,
+      "side": "new",
+      "severity": "medium",
+      "title": "Backoff panics when baseDelay is the zero value",
+      "body": "rand.Int63n(int64(d)/2) panics when its argument <= 0, which happens if baseDelay is unset. Guard the jitter or default baseDelay in the constructor.",
+      "suggestion": ""
+    },
+    {
+      "id": "f4",
+      "file": "gateway/client.go",
+      "line": 17,
+      "side": "new",
+      "severity": "praise",
+      "title": "Per-attempt context check is the right call",
+      "body": "Checking req.Context().Err() before each attempt means a cancelled request bails immediately instead of sleeping through the whole schedule. Nice."
+    },
+    {
+      "id": "f5",
+      "file": "gateway/client_test.go",
+      "line": 10,
+      "side": "new",
+      "severity": "low",
+      "title": "Test covers Backoff growth but not ShouldRetry or the Do loop",
+      "body": "Worth adding a case asserting attempts == maxAttempts on a persistent 503, and that ShouldRetry is false on 2xx.",
+      "suggestion": ""
+    }
+  ],
+  "diagrams": [
+    {
+      "id": "d1",
+      "title": "Request flow \u2014 where retry now plugs in",
+      "kind": "architecture",
+      "mermaid": "flowchart LR\n  caller([Caller]) --> do[Client.Do]\n  do -->|each attempt| rt[http.RoundTripper]\n  do -->|consult| rp[RetryPolicy]:::added\n  rp -->|ShouldRetry?| do\n  rp -->|Backoff delay| do\n  do --> resp([Response])\n  classDef added fill:#d7f5dd,stroke:#1a7f37,color:#0b3d1f"
+    },
+    {
+      "id": "d2",
+      "title": "What changed",
+      "kind": "capability",
+      "mermaid": "flowchart TB\n  PR[\"Extract retry/backoff into RetryPolicy\"]\n  PR --> a[\"New RetryPolicy: Backoff + ShouldRetry\"]:::added\n  PR --> b[\"Client composes RetryPolicy\"]:::changed\n  PR --> c[\"Per-attempt context check\"]:::added\n  PR --> e[\"Table tests for backoff growth\"]:::added\n  classDef added fill:#d7f5dd,stroke:#1a7f37,color:#0b3d1f\n  classDef changed fill:#fff3cd,stroke:#9a6700,color:#5a3d00"
+    }
+  ]
+}
